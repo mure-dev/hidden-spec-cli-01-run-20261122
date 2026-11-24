@@ -569,8 +569,12 @@ function searchReplaceEdits(lines: string[], strict: boolean): Edit[] {
     if (lines[i]!.trimEnd() !== '<<<<<<< SEARCH') continue;
     let eq = -1;
     for (let j = i + 1; j < lines.length; j++) {
-      if (lines[j]!.trimEnd() === '<<<<<<< SEARCH') break;
-      if (lines[j]!.trimEnd() === '=======') {
+      const t = lines[j]!.trimEnd();
+      // A SEARCH line with no ======= before its >>>>>>> REPLACE is a parse
+      // error at the SEARCH line (SPEC.md section 7): a ======= after the
+      // REPLACE does not count as the separator.
+      if (t === '<<<<<<< SEARCH' || t === '>>>>>>> REPLACE') break;
+      if (t === '=======') {
         eq = j;
         break;
       }
@@ -757,7 +761,14 @@ function v4aSectionEdit(kind: 'add' | 'delete' | 'update', path: string, startLi
     moveTo = content[0]!.text.slice('*** Move to: '.length).trim();
     idx = 1;
   }
-  const chunks = parseV4AChunks(content.slice(idx));
+  const rest = content.slice(idx);
+  // An Update File section whose only lines are stray *** End of File lines
+  // has no chunk: SPEC.md section 8 names the Update File line, not the End
+  // of File line, for a section with no chunk and no Move to.
+  if (moveTo === null && rest.length > 0 && rest.every(({ text }) => text === '*** End of File')) {
+    throw new Exit2(`error: parse ${startLine}`);
+  }
+  const chunks = parseV4AChunks(rest);
   if (chunks.length === 0 && moveTo === null) throw new Exit2(`error: parse ${startLine}`);
   return (tree) => {
     if (!safe(path)) throw new Fail('unsafe', path);
